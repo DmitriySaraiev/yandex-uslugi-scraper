@@ -14,23 +14,11 @@ create table category
 (
     id                bigint auto_increment
         primary key,
-    catefory_name     varchar(200) null,
+    category_name     varchar(200) null,
     subcategory1_name varchar(200) null,
     subcategory2_name varchar(200) null,
-    constraint catefory_name
-        unique (catefory_name, subcategory1_name, subcategory2_name)
-);
-
-create table service_provider_category
-(
-    id                  bigint auto_increment
-        primary key,
-    service_provider_id bigint not null,
-    category_id         bigint not null,
-    constraint service_provider_category_category_id_fk
-        foreign key (category_id) references category (id),
-    constraint service_provider_category_service_provider_id_fk
-        foreign key (service_provider_id) references service_provider (id)
+    constraint category_name
+        unique (category_name, subcategory1_name, subcategory2_name)
 );
 
 create table category_atribute
@@ -43,4 +31,16 @@ create table category_atribute
     value       varchar(100) not null,
     constraint category_atribute_category_id_fk
         foreign key (category_id) references category (id)
+);
+
+create table service_provider_category
+(
+    id                  bigint auto_increment
+        primary key,
+    service_provider_id bigint not null,
+    category_id         bigint not null,
+    constraint service_provider_category_category_id_fk
+        foreign key (category_id) references category (id),
+    constraint service_provider_category_service_provider_id_fk
+        foreign key (service_provider_id) references service_provider (id)
 );
