@@ -19,8 +19,18 @@ public class ServiceProvider {
     private Boolean isCompany;
     private Boolean isPassportVerified;
     private String location;
-    private String socialNetworks;
     private Float rating;
+    private String phone;
+    private String vk;
+    private String facebook;
+    private String youtube;
+    private String instagram;
+    private String profiru;
+    private String telegram;
+    private String whatsapp;
+    private String viber;
+    private String email;
+    private Boolean parsed;
 
     @Column(unique=true)
     private String url;

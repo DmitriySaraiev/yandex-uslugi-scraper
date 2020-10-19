@@ -20,6 +20,7 @@ public class Category {
     private String subcategory1Name;
     @Column(name = "subcategory2_name")
     private String subcategory2Name;
+    private String url;
 
     @ManyToMany
     @JoinTable(
