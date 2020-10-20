@@ -7,7 +7,7 @@ import java.util.List;
 
 public interface CategoryRepository extends CrudRepository<Category, Long> {
 
-    Category findByCategoryNameAndSubcategory1Name(String categoryName, String subcategory1Name);
+    Category findByCategoryNameAndSubcategory1NameAndSubcategory2NameIsNull(String categoryName, String subcategory1Name);
 
     Category findByCategoryNameAndSubcategory1NameAndSubcategory2Name(String categoryName, String subcategory1Name, String subcategory2Name);
 

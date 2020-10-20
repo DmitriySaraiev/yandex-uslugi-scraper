@@ -35,7 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @Component
-public class YandexUslugiScraper {
+public class YandexUslugiScraper implements CommandLineRunner {
 
     private final static Logger logger = LoggerFactory.getLogger(YandexUslugiScraper.class);
 
@@ -99,11 +99,13 @@ public class YandexUslugiScraper {
     private List<Category> scrapeLevel3Categories(Category level2Category, String pageSource) {
         List<Category> level3Categories = new ArrayList<>();
         Document document = Jsoup.parse(pageSource);
-        Elements subcategory3Elems = document.select("div.Filters-RubricsList a");
-        for (Element subcategory3Elem : subcategory3Elems) {
-            String subcategory2Name = subcategory3Elem.text();
-            String categoryUrl = StringUtils.substringAfterLast(subcategory3Elem.attr("href"), "category/");
-
+        Elements subcategory2Elems = document.select("div.Filters-RubricsList a");
+        for (Element subcategory2Elem : subcategory2Elems) {
+            String subcategory2Name = subcategory2Elem.text();
+            if (subcategory2Name.equals("Свернуть")) {
+                continue;
+            }
+            String categoryUrl = StringUtils.substringAfterLast(subcategory2Elem.attr("href"), "category/");
             Category category = new Category();
             category.setCategoryName(level2Category.getCategoryName());
             category.setSubcategory1Name(level2Category.getSubcategory1Name());
@@ -122,7 +124,7 @@ public class YandexUslugiScraper {
         for (int i = startIndex; i < filterElements.size(); i++) {
             Element filterElement = filterElements.get(i);
             Elements options = filterElement.select("div.Checkbox-Text");
-            if(filterElement.selectFirst("h3:contains(Место)") != null) {
+            if (filterElement.selectFirst("h3:contains(Место)") != null) {
                 continue;
             }
             List<String> names = new ArrayList<>();
@@ -159,7 +161,8 @@ public class YandexUslugiScraper {
     private List<Category> scrapeTwoLevelsOfCategoriesInRegion(String regionUrl) {
         List<Category> categories = new ArrayList<>();
         String url = String.format("https://yandex.ru/uslugi/%s/catalog", regionUrl);
-        String source = chromeDriverManager.getPageSource(chromeDriverManager.getFreeChromeDriver());
+        ChromeDriverWrapper chromeDriverWrapper = chromeDriverManager.getFreeChromeDriver();
+        String source = chromeDriverManager.getPageSource(chromeDriverWrapper, url);
         Document document = Jsoup.parse(source);
         Element scriptEl = document.selectFirst("script[nonce]");
         String scriptSource = StringUtils.substringBetween(scriptEl.toString(), ".__PRELOADED_STATE__=", ";window.__CSRF_TOKEN__=");
@@ -168,6 +171,7 @@ public class YandexUslugiScraper {
         JSONObject rubricsObject = (JSONObject) mainJsonObject.get("rubrics");
         categories.addAll(getCategoriesFromJsonObject("occupations", rubricsObject));
         categories.addAll(getCategoriesFromJsonObject("extraOccupations", rubricsObject));
+        chromeDriverWrapper.setBusy(false);
         return categories;
     }
 
@@ -197,4 +201,10 @@ public class YandexUslugiScraper {
         return categories;
     }
 
+    @Override
+    public void run(String... args) {
+//        Category category = categoryService.get(7L);
+//        scrapeCategory(category, "213-moscow");
+        scrape();
+    }
 }

@@ -28,7 +28,7 @@ public class CategoryService {
     public Category save(Category category) {
         Category existingCategory;
         if (category.getSubcategory2Name() == null) {
-            existingCategory = categoryRepository.findByCategoryNameAndSubcategory1Name(category.getCategoryName(), category.getSubcategory1Name());
+            existingCategory = categoryRepository.findByCategoryNameAndSubcategory1NameAndSubcategory2NameIsNull(category.getCategoryName(), category.getSubcategory1Name());
         } else {
             existingCategory = categoryRepository.findByCategoryNameAndSubcategory1NameAndSubcategory2Name(category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
         }
