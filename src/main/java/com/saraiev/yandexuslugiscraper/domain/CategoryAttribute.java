@@ -15,11 +15,10 @@ public class CategoryAttribute {
     private Long id;
 
     private String name;
-    private String type;
     private String value;
 
     @ManyToOne
-    @JoinColumn(name="categoty_id", nullable=false)
+    @JoinColumn(name="category_id", nullable=false)
     private Category category;
 
 }

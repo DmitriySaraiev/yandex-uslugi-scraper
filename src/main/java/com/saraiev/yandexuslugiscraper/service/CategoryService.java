@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class CategoryService {
@@ -19,13 +20,23 @@ public class CategoryService {
         this.categoryRepository = categoryRepository;
     }
 
+    public Category get(Long id) {
+        Optional<Category> optionalCategory = categoryRepository.findById(id);
+        return optionalCategory.orElse(null);
+    }
+
     public Category save(Category category) {
-        Category existingCategory = categoryRepository.findByCategoryNameAndSubcategory1Name(category.getCategoryName(), category.getSubcategory1Name());
+        Category existingCategory;
+        if (category.getSubcategory2Name() == null) {
+            existingCategory = categoryRepository.findByCategoryNameAndSubcategory1Name(category.getCategoryName(), category.getSubcategory1Name());
+        } else {
+            existingCategory = categoryRepository.findByCategoryNameAndSubcategory1NameAndSubcategory2Name(category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
+        }
         if (existingCategory != null) {
-            logger.info("category {} {} already exists", category.getCategoryName(), category.getSubcategory1Name());
+            logger.info("category {} | {} already exists", category.getCategoryName(), category.getSubcategory1Name());
             return existingCategory;
         }
-        logger.info("creating category {} {}", category.getCategoryName(), category.getSubcategory1Name());
+        logger.info("creating category {} | {} | {}", category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name() == null ? "" : category.getSubcategory2Name());
         return categoryRepository.save(category);
     }
 
