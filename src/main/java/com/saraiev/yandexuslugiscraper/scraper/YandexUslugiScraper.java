@@ -2,11 +2,12 @@ package com.saraiev.yandexuslugiscraper.scraper;
 
 import com.saraiev.yandexuslugiscraper.domain.Category;
 import com.saraiev.yandexuslugiscraper.domain.CategoryAttribute;
-import com.saraiev.yandexuslugiscraper.domain.ChromeDriverWrapper;
+import com.saraiev.yandexuslugiscraper.domain.ServiceProvider;
 import com.saraiev.yandexuslugiscraper.service.CategoryAttributeService;
 import com.saraiev.yandexuslugiscraper.service.CategoryService;
 import com.saraiev.yandexuslugiscraper.service.ServiceProviderService;
 import com.saraiev.yandexuslugiscraper.utils.ChromeDriverManager;
+import com.saraiev.yandexuslugiscraper.utils.Downloader;
 import com.saraiev.yandexuslugiscraper.utils.RegionProvider;
 import lombok.SneakyThrows;
 import org.apache.commons.lang3.StringUtils;
@@ -17,10 +18,6 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.openqa.selenium.By;
-import org.openqa.selenium.NoSuchElementException;
-import org.openqa.selenium.WebElement;
-import org.openqa.selenium.chrome.ChromeDriver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,11 +30,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 @Component
 public class YandexUslugiScraper implements CommandLineRunner {
 
     private final static Logger logger = LoggerFactory.getLogger(YandexUslugiScraper.class);
+
+    private final static String PRIVATE_WORKER_URL_APPENDER = "?wizextra=ydofilters%3Dfeature%3As_features%3Aor%3Aworker_type_private";
+    private final static String ORGANIZATION_WORKER_URL_APPENDER = "?wizextra=ydofilters%3Dfeature%3As_features%3Aor%3Aworker_type_org";
 
     private final CategoryService categoryService;
     private final CategoryAttributeService categoryAttributeService;
@@ -45,67 +46,105 @@ public class YandexUslugiScraper implements CommandLineRunner {
     private final ChromeDriverManager chromeDriverManager;
     private final YandexUslugiParser yandexUslugiParser;
     private final ExecutorService executorService;
+    private final Downloader downloader;
 
     public YandexUslugiScraper(CategoryService categoryService,
                                CategoryAttributeService categoryAttributeService,
                                ServiceProviderService serviceProviderService,
                                ChromeDriverManager chromeDriverManager,
                                YandexUslugiParser yandexUslugiParser,
-                               @Value("${threads.number}") int numberOfThreads) {
+                               @Value("${threads.number}") int numberOfThreads, Downloader downloader) {
         this.categoryService = categoryService;
         this.categoryAttributeService = categoryAttributeService;
         this.serviceProviderService = serviceProviderService;
         this.chromeDriverManager = chromeDriverManager;
         this.yandexUslugiParser = yandexUslugiParser;
         this.executorService = Executors.newFixedThreadPool(numberOfThreads);
+        this.downloader = downloader;
     }
 
+    @SneakyThrows
     public void scrape() {
         Set<Map.Entry<String, String>> regionEntries = RegionProvider.regionMap.entrySet();
-        List<Category> levelTwoCategories = scrapeTwoLevelsOfCategoriesInRegion(regionEntries.iterator().next().getValue());
-        levelTwoCategories.parallelStream().forEach(categoryService::save);
+//        List<Category> levelTwoCategories = scrapeTwoLevelsOfCategories(regionEntries.iterator().next().getValue());
+//        levelTwoCategories.parallelStream().forEach(categoryService::save);
         for (Map.Entry<String, String> entry : regionEntries) {
             scrapeRegion(entry);
         }
     }
 
+    @SneakyThrows
     private void scrapeRegion(Map.Entry<String, String> regionEntry) {
         logger.info("started region {}", regionEntry.getKey());
         List<Category> allLevelTwoCategories = categoryService.getAllLevelTwoCategories();
+        List<Future> futures = new ArrayList<>();
+        if (regionEntry.getValue().equals("10853-vologda-oblast")) {
+            allLevelTwoCategories = allLevelTwoCategories.subList(35, allLevelTwoCategories.size());
+        }
         for (Category category : allLevelTwoCategories) {
-            scrapeCategory(category, regionEntry.getValue());
+            futures.add(executorService.submit(() -> {
+                List<Category> categories = scrapeCategoryForSubcategories(category, regionEntry.getValue(), false);
+                for (Category subcategory : categories) {
+                    scrapeAndSaveAllServiceProviderUrlsInCategory(subcategory, regionEntry.getValue(), true);
+                    scrapeAndSaveAllServiceProviderUrlsInCategory(subcategory, regionEntry.getValue(), false);
+                }
+            }));
+        }
+        for (Future future : futures) {
+            future.get();
         }
     }
 
-    private void scrapeCategory(Category category, String regionUrl) {
-        logger.info("started category lvl 2 {} {}", category.getCategoryName(), category.getSubcategory1Name());
-        ChromeDriverWrapper chromeDriverWrapper = chromeDriverManager.getFreeChromeDriver();
-        chromeDriverWrapper.setBusy(true);
-        ChromeDriver chromeDriver = chromeDriverWrapper.getChromeDriver();
+    @SneakyThrows
+    private List<Category> scrapeCategoryForSubcategories(Category category, String regionUrl, boolean isLevel3) {
+        logger.info("started category {} | {} | {}", category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
+        List<Category> level3Categories = new ArrayList<>();
         String url = String.format("https://yandex.ru/uslugi/%s/category%s", regionUrl, category.getUrl());
-        chromeDriverManager.loadPage(chromeDriverWrapper, url);
-        try {
-            WebElement showAllCategoriesElem = chromeDriver.findElement(By.cssSelector("div.Filters span.YdoIcon"));
-            showAllCategoriesElem.click();
-        } catch (NoSuchElementException ignored) {
-        }
-        String pageSource = chromeDriverManager.getPageSource(chromeDriverWrapper);
+        String pageSource = downloader.getWithCookies(url);
         List<CategoryAttribute> categoryAttributes = scrapeCategoryAttributes(category, pageSource);
         categoryAttributes.parallelStream().forEach(categoryAttribute -> categoryAttributeService.save(categoryAttribute, category));
-        List<Category> level3Categories = scrapeLevel3Categories(category, pageSource);
-        level3Categories.parallelStream().forEach(categoryService::save);
+        if (!isLevel3) {
+            level3Categories = scrapeLevel3Categories(category, pageSource);
+        }
+        List<Category> savedLevel3Categories = new ArrayList<>();
+        for (Category level3Category : level3Categories) {
+            savedLevel3Categories.add(categoryService.save(level3Category));
+        }
+        level3Categories = savedLevel3Categories;
+
+        for (Category level3Category : level3Categories) {
+            scrapeCategoryForSubcategories(level3Category, regionUrl, true);
+        }
+
+        return level3Categories;
     }
 
+    @SneakyThrows
     private List<Category> scrapeLevel3Categories(Category level2Category, String pageSource) {
         List<Category> level3Categories = new ArrayList<>();
         Document document = Jsoup.parse(pageSource);
-        Elements subcategory2Elems = document.select("div.Filters-RubricsList a");
-        for (Element subcategory2Elem : subcategory2Elems) {
-            String subcategory2Name = subcategory2Elem.text();
-            if (subcategory2Name.equals("Свернуть")) {
-                continue;
-            }
-            String categoryUrl = StringUtils.substringAfterLast(subcategory2Elem.attr("href"), "category/");
+        Element scriptEl = document.selectFirst("script[nonce]");
+        String scriptSource = StringUtils.substringBetween(scriptEl.toString(), ".__PRELOADED_STATE__=", ";window.__CSRF_TOKEN__=");
+        JSONParser jsonParser = new JSONParser();
+        JSONObject mainJsonObject = (JSONObject) jsonParser.parse(scriptSource);
+        JSONObject searchObject = (JSONObject) mainJsonObject.get("search");
+        JSONObject paramObject = (JSONObject) searchObject.get("params");
+        JSONArray filtersArray = (JSONArray) paramObject.get("filters");
+        JSONObject firstFilterObject = (JSONObject) filtersArray.get(0);
+        JSONArray occupationsArray = (JSONArray) firstFilterObject.get("occupations");
+        JSONObject firstOccupationObject = (JSONObject) occupationsArray.get(0);
+        JSONArray specializationsArray = (JSONArray) firstOccupationObject.get("specializations");
+        JSONObject firstSpecializationObject = (JSONObject) specializationsArray.get(0);
+        JSONArray servicesArray = (JSONArray) firstSpecializationObject.get("services");
+
+        for (Object o : servicesArray) {
+            JSONObject serviceObject = (JSONObject) o;
+
+            String subcategory2Name = (String) serviceObject.get("name");
+            String serviceUrl = (String) serviceObject.get("seoId");
+            String serviceId = (String) serviceObject.get("id");
+            String categoryUrl = serviceUrl + "--" + serviceId;
+
             Category category = new Category();
             category.setCategoryName(level2Category.getCategoryName());
             category.setSubcategory1Name(level2Category.getSubcategory1Name());
@@ -158,11 +197,10 @@ public class YandexUslugiScraper implements CommandLineRunner {
     }
 
     @SneakyThrows
-    private List<Category> scrapeTwoLevelsOfCategoriesInRegion(String regionUrl) {
+    private List<Category> scrapeTwoLevelsOfCategories(String regionUrl) {
         List<Category> categories = new ArrayList<>();
         String url = String.format("https://yandex.ru/uslugi/%s/catalog", regionUrl);
-        ChromeDriverWrapper chromeDriverWrapper = chromeDriverManager.getFreeChromeDriver();
-        String source = chromeDriverManager.getPageSource(chromeDriverWrapper, url);
+        String source = downloader.getWithCookies(url);
         Document document = Jsoup.parse(source);
         Element scriptEl = document.selectFirst("script[nonce]");
         String scriptSource = StringUtils.substringBetween(scriptEl.toString(), ".__PRELOADED_STATE__=", ";window.__CSRF_TOKEN__=");
@@ -171,10 +209,39 @@ public class YandexUslugiScraper implements CommandLineRunner {
         JSONObject rubricsObject = (JSONObject) mainJsonObject.get("rubrics");
         categories.addAll(getCategoriesFromJsonObject("occupations", rubricsObject));
         categories.addAll(getCategoriesFromJsonObject("extraOccupations", rubricsObject));
-        chromeDriverWrapper.setBusy(false);
         return categories;
     }
 
+    @SneakyThrows
+    private void scrapeAndSaveAllServiceProviderUrlsInCategory(Category category, String regionUrl, Boolean isCompany) {
+        logger.info("Scraping service providers in category {} | {} | {}...", category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
+        String appender = isCompany ? ORGANIZATION_WORKER_URL_APPENDER : PRIVATE_WORKER_URL_APPENDER;
+        String url = String.format("https://yandex.ru/uslugi/%s/category%s%s", regionUrl, category.getUrl(), appender);
+        String source;
+        Document document;
+        int counter = 0;
+        Element nextPageEl;
+        source = downloader.getWithCookies(url);
+        document = Jsoup.parse(source);
+        do {
+            nextPageEl = document.selectFirst("span:contains(Далее)");
+            Elements urlElems = document.select("div.WorkersListBlendered-WorkerCard a.WorkerCardMini-Title");
+            for (Element urlElem : urlElems) {
+                String serviceProviderUrl = "https://yandex.ru" + StringUtils.substringBefore(urlElem.attr("href"), "?");
+                ServiceProvider serviceProvider = new ServiceProvider();
+                serviceProvider.setUrl(serviceProviderUrl);
+                serviceProvider.setIsCompany(isCompany);
+                serviceProvider.setParsed(false);
+                serviceProvider.getCategories().add(category);
+                serviceProviderService.save(serviceProvider);
+            }
+            if (nextPageEl != null) {
+                url = String.format("https://yandex.ru/uslugi/%s/category%s%s", regionUrl, category.getUrl(), appender) + "&p=" + ++counter;
+                source = downloader.getWithCookies(url);
+                document = Jsoup.parse(source);
+            }
+        } while (nextPageEl != null);
+    }
 
     private List<Category> getCategoriesFromJsonObject(String objectName, JSONObject mainJsonObject) {
         List<Category> categories = new ArrayList<>();
@@ -202,9 +269,8 @@ public class YandexUslugiScraper implements CommandLineRunner {
     }
 
     @Override
-    public void run(String... args) {
-//        Category category = categoryService.get(7L);
-//        scrapeCategory(category, "213-moscow");
+    public void run(String... args) throws Exception {
+        chromeDriverManager.getPageSource("https://yandex.ru/uslugi/1-moscow-and-moscow-oblast/category/hozyajstvo-i-uborka/uborka--3124");
         scrape();
     }
 }

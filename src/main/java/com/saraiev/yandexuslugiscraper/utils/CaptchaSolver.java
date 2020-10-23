@@ -17,12 +17,10 @@ import java.util.Base64;
 public class CaptchaSolver {
 
     private final static Logger logger = LoggerFactory.getLogger(CaptchaSolver.class);
-
+    private final Downloader downloader;
     private String anticaptchaApiKey;
 
-    private boolean isSolvingInProcess = false;
-
-    private final Downloader downloader;
+    private boolean isSolvingInProcess;
 
     public CaptchaSolver(Downloader downloader, @Value("${anticaptcha.api.key}") String anticaptchaApiKey) {
         this.downloader = downloader;
@@ -31,48 +29,53 @@ public class CaptchaSolver {
 
     @SneakyThrows
     public String solveImageCaptcha() {
+        isSolvingInProcess = true;
+        try {
+            byte[] fileContent = FileUtils.readFileToByteArray(new File("capthca.png"));
+            String encodedString = Base64.getEncoder().encodeToString(fileContent);
 
-        byte[] fileContent = FileUtils.readFileToByteArray(new File("capthca.png"));
-        String encodedString = Base64.getEncoder().encodeToString(fileContent);
+            String body = "{\n" +
+                    "    \"clientKey\": \"" + anticaptchaApiKey + "\",\n" +
+                    "    \"task\": {\n" +
+                    "        \"type\": \"ImageToTextTask\",\n" +
+                    "        \"body\": \"" + encodedString + "\",\n" +
+                    "        \"phrase\": false,\n" +
+                    "        \"case\": false,\n" +
+                    "        \"numeric\": false,\n" +
+                    "        \"math\": 0,\n" +
+                    "        \"minLength\": 0,\n" +
+                    "        \"maxLength\": 0\n" +
+                    "    }," +
+                    " \"languagePool\": \"rn\"\n" +
+                    "}";
 
-        String body = "{\n" +
-                "    \"clientKey\": \"" + anticaptchaApiKey + "\",\n" +
-                "    \"task\": {\n" +
-                "        \"type\": \"ImageToTextTask\",\n" +
-                "        \"body\": \"" + encodedString + "\",\n" +
-                "        \"phrase\": false,\n" +
-                "        \"case\": false,\n" +
-                "        \"numeric\": false,\n" +
-                "        \"math\": 0,\n" +
-                "        \"minLength\": 0,\n" +
-                "        \"maxLength\": 0\n" +
-                "    }," +
-                " \"languagePool\": \"rn\"\n" +
-                "}";
+            String postResponse = downloader.post("https://api.anti-captcha.com/createTask ", body);
 
-        String postResponse = downloader.post("https://api.anti-captcha.com/createTask ", body);
+            while (postResponse.contains("ERROR_NO_SLOT_AVAILABLE")) {
+                Thread.sleep(3000);
+                logger.info("No captha workers available. Waiting.");
+                postResponse = downloader.post("https://api.anti-captcha.com/createTask ", body);
+            }
 
-        while (postResponse.contains("ERROR_NO_SLOT_AVAILABLE")) {
-            Thread.sleep(3000);
-            logger.info("No captha workers available. Waiting.");
-            postResponse = downloader.post("https://api.anti-captcha.com/createTask ", body);
-        }
+            String taskId = StringUtils.substringBetween(postResponse, "taskId\":", "}");
+            body = "{\n" +
+                    "    \"clientKey\": \"" + anticaptchaApiKey + "\",\n" +
+                    "    \"taskId\": \"" + taskId + "\"" +
+                    "}";
 
-        String taskId = StringUtils.substringBetween(postResponse, "taskId\":", "}");
-        body = "{\n" +
-                "    \"clientKey\": \"" + anticaptchaApiKey + "\",\n" +
-                "    \"taskId\": \"" + taskId + "\"" +
-                "}";
-
-        postResponse = downloader.post("https://api.anti-captcha.com/getTaskResult", body);
-        while (postResponse.contains("processing")) {
-            logger.info("waiting for capthcha solution");
-            Thread.sleep(4000);
             postResponse = downloader.post("https://api.anti-captcha.com/getTaskResult", body);
+            while (postResponse.contains("processing")) {
+                logger.info("waiting for capthcha solution");
+                Thread.sleep(4000);
+                postResponse = downloader.post("https://api.anti-captcha.com/getTaskResult", body);
+            }
+            if (StringUtils.substringBetween(postResponse, "text\":\"", "\",") == null)
+                logger.info("error solving capthca");
+            logger.info("Capthca solved");
+            return StringUtils.substringBetween(postResponse, "text\":\"", "\",");
+        } finally {
+            isSolvingInProcess = false;
         }
-        if (StringUtils.substringBetween(postResponse, "text\":\"", "\",") == null)
-            logger.info("error solving capthca");
-        return StringUtils.substringBetween(postResponse, "text\":\"", "\",");
     }
 
 }
