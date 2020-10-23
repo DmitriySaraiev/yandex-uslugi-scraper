@@ -1,11 +1,12 @@
 package com.saraiev.yandexuslugiscraper.domain;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import javax.persistence.*;
-import java.util.Set;
 
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "category_atribute")
 public class CategoryAttribute {
@@ -17,8 +18,8 @@ public class CategoryAttribute {
     private String name;
     private String value;
 
-    @ManyToOne
-    @JoinColumn(name="category_id", nullable=false)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id", nullable = false)
     private Category category;
 
 }

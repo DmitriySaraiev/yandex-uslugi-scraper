@@ -33,10 +33,10 @@ public class CategoryService {
             existingCategory = categoryRepository.findByCategoryNameAndSubcategory1NameAndSubcategory2Name(category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
         }
         if (existingCategory != null) {
-            logger.info("category {} | {} already exists", category.getCategoryName(), category.getSubcategory1Name());
+//            logger.info("category {} | {} | {} already exists", category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
             return existingCategory;
         }
-        logger.info("creating category {} | {} | {}", category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name() == null ? "" : category.getSubcategory2Name());
+//        logger.info("creating category {} | {} | {}", category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name() == null ? "" : category.getSubcategory2Name());
         return categoryRepository.save(category);
     }
 

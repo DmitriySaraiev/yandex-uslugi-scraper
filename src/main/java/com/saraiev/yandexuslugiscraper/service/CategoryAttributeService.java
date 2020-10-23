@@ -21,14 +21,14 @@ public class CategoryAttributeService {
     public CategoryAttribute save(CategoryAttribute categoryAttribute, Category category) {
         CategoryAttribute existingCategoryAttribute = categoryAttributeRepository.findByCategoryAndNameAndValue(category, categoryAttribute.getName(), categoryAttribute.getValue());
         if (existingCategoryAttribute != null) {
-            logger.info("attribute {}::{} for category {} | {} | {} already exists",
-                    categoryAttribute.getName(), categoryAttribute.getValue(),
-                    category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
+//            logger.info("attribute {}::{} for category {} | {} | {} already exists",
+//                    categoryAttribute.getName(), categoryAttribute.getValue(),
+//                    category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
             return existingCategoryAttribute;
         }
-        logger.info("saved attribute {}::{} for category {} | {} | {}",
-                categoryAttribute.getName(), categoryAttribute.getValue(),
-                category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
+//        logger.info("saved attribute {}::{} for category {} | {} | {}",
+//                categoryAttribute.getName(), categoryAttribute.getValue(),
+//                category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
         return categoryAttributeRepository.save(categoryAttribute);
     }
 

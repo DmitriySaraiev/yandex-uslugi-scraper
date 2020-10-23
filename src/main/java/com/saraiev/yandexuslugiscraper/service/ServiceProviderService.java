@@ -2,10 +2,15 @@ package com.saraiev.yandexuslugiscraper.service;
 
 import com.saraiev.yandexuslugiscraper.domain.ServiceProvider;
 import com.saraiev.yandexuslugiscraper.repository.ServiceProviderRepository;
+import org.hibernate.Hibernate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 public class ServiceProviderService {
+
+    private final static Logger logger = LoggerFactory.getLogger(ServiceProviderService.class);
 
     private final ServiceProviderRepository serviceProviderRepository;
 
@@ -19,9 +24,15 @@ public class ServiceProviderService {
 
     public ServiceProvider save(ServiceProvider serviceProvider) {
         ServiceProvider serviceProviderByUrl = serviceProviderRepository.findByUrl(serviceProvider.getUrl());
-        if(serviceProviderByUrl != null) {
+        if (serviceProviderByUrl != null) {
+            logger.info("Service provider {} {} already exists", serviceProvider.getUrl(), serviceProvider.getName());
+            if(!serviceProviderByUrl.getCategories().equals(serviceProvider.getCategories())) {
+                serviceProviderByUrl.getCategories().addAll(serviceProvider.getCategories());
+                serviceProviderRepository.save(serviceProviderByUrl);
+            }
             return serviceProviderByUrl;
         } else {
+            logger.info("Saved service provider {}", serviceProvider.getUrl());
             return serviceProviderRepository.save(serviceProvider);
         }
     }

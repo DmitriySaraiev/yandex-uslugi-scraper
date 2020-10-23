@@ -1,12 +1,14 @@
 package com.saraiev.yandexuslugiscraper.domain;
 
-import lombok.Data;
+import lombok.Getter;
+import lombok.Setter;
 
 import javax.persistence.*;
 import java.util.HashSet;
 import java.util.Set;
 
-@Data
+@Getter
+@Setter
 @Entity
 @Table(name = "service_provider")
 public class ServiceProvider {
@@ -32,10 +34,10 @@ public class ServiceProvider {
     private String email;
     private Boolean parsed;
 
-    @Column(unique=true)
+    @Column(unique = true)
     private String url;
 
-    @ManyToMany
+    @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "service_provider_category",
             joinColumns = @JoinColumn(name = "service_provider_id"),
