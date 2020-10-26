@@ -18,10 +18,13 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.openqa.selenium.Cookie;
+import org.openqa.selenium.chrome.ChromeDriver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -33,6 +36,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 @Component
+@Order(2)
 public class YandexUslugiScraper implements CommandLineRunner {
 
     private final static Logger logger = LoggerFactory.getLogger(YandexUslugiScraper.class);
@@ -40,24 +44,24 @@ public class YandexUslugiScraper implements CommandLineRunner {
     private final static String PRIVATE_WORKER_URL_APPENDER = "?wizextra=ydofilters%3Dfeature%3As_features%3Aor%3Aworker_type_private";
     private final static String ORGANIZATION_WORKER_URL_APPENDER = "?wizextra=ydofilters%3Dfeature%3As_features%3Aor%3Aworker_type_org";
 
+    private final ChromeDriverManager chromeDriverManager;
     private final CategoryService categoryService;
     private final CategoryAttributeService categoryAttributeService;
     private final ServiceProviderService serviceProviderService;
-    private final ChromeDriverManager chromeDriverManager;
     private final YandexUslugiParser yandexUslugiParser;
     private final ExecutorService executorService;
+
     private final Downloader downloader;
 
-    public YandexUslugiScraper(CategoryService categoryService,
+    public YandexUslugiScraper(ChromeDriverManager chromeDriverManager, CategoryService categoryService,
                                CategoryAttributeService categoryAttributeService,
                                ServiceProviderService serviceProviderService,
-                               ChromeDriverManager chromeDriverManager,
                                YandexUslugiParser yandexUslugiParser,
                                @Value("${threads.number}") int numberOfThreads, Downloader downloader) {
+        this.chromeDriverManager = chromeDriverManager;
         this.categoryService = categoryService;
         this.categoryAttributeService = categoryAttributeService;
         this.serviceProviderService = serviceProviderService;
-        this.chromeDriverManager = chromeDriverManager;
         this.yandexUslugiParser = yandexUslugiParser;
         this.executorService = Executors.newFixedThreadPool(numberOfThreads);
         this.downloader = downloader;
@@ -75,18 +79,20 @@ public class YandexUslugiScraper implements CommandLineRunner {
 
     @SneakyThrows
     private void scrapeRegion(Map.Entry<String, String> regionEntry) {
-        logger.info("started region {}", regionEntry.getKey());
+        logger.info("started region {}\n", regionEntry.getKey());
         List<Category> allLevelTwoCategories = categoryService.getAllLevelTwoCategories();
         List<Future> futures = new ArrayList<>();
         if (regionEntry.getValue().equals("10853-vologda-oblast")) {
-            allLevelTwoCategories = allLevelTwoCategories.subList(35, allLevelTwoCategories.size());
+            allLevelTwoCategories = allLevelTwoCategories.subList(33, allLevelTwoCategories.size());
         }
         for (Category category : allLevelTwoCategories) {
+            List<Category> finalAllLevelTwoCategories = allLevelTwoCategories;
             futures.add(executorService.submit(() -> {
+                logger.info("scraping category {}/{}\n", finalAllLevelTwoCategories.indexOf(category), finalAllLevelTwoCategories.size());
                 List<Category> categories = scrapeCategoryForSubcategories(category, regionEntry.getValue(), false);
                 for (Category subcategory : categories) {
                     scrapeAndSaveAllServiceProviderUrlsInCategory(subcategory, regionEntry.getValue(), true);
-                    scrapeAndSaveAllServiceProviderUrlsInCategory(subcategory, regionEntry.getValue(), false);
+//                    scrapeAndSaveAllServiceProviderUrlsInCategory(subcategory, regionEntry.getValue(), false);
                 }
             }));
         }
@@ -97,10 +103,10 @@ public class YandexUslugiScraper implements CommandLineRunner {
 
     @SneakyThrows
     private List<Category> scrapeCategoryForSubcategories(Category category, String regionUrl, boolean isLevel3) {
-        logger.info("started category {} | {} | {}", category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
+        logger.info("started category {} | {} | {}\n", category.getCategoryName(), category.getSubcategory1Name(), category.getSubcategory2Name());
         List<Category> level3Categories = new ArrayList<>();
         String url = String.format("https://yandex.ru/uslugi/%s/category%s", regionUrl, category.getUrl());
-        String pageSource = downloader.getWithCookies(url);
+        String pageSource = chromeDriverManager.getPageSource(url).getSource();
         List<CategoryAttribute> categoryAttributes = scrapeCategoryAttributes(category, pageSource);
         categoryAttributes.parallelStream().forEach(categoryAttribute -> categoryAttributeService.save(categoryAttribute, category));
         if (!isLevel3) {
@@ -142,7 +148,7 @@ public class YandexUslugiScraper implements CommandLineRunner {
 
             String subcategory2Name = (String) serviceObject.get("name");
             String serviceUrl = (String) serviceObject.get("seoId");
-            String serviceId = (String) serviceObject.get("id");
+            Long serviceId = (Long) serviceObject.get("numberId");
             String categoryUrl = serviceUrl + "--" + serviceId;
 
             Category category = new Category();
@@ -200,7 +206,7 @@ public class YandexUslugiScraper implements CommandLineRunner {
     private List<Category> scrapeTwoLevelsOfCategories(String regionUrl) {
         List<Category> categories = new ArrayList<>();
         String url = String.format("https://yandex.ru/uslugi/%s/catalog", regionUrl);
-        String source = downloader.getWithCookies(url);
+        String source = chromeDriverManager.getPageSource(url).getSource();
         Document document = Jsoup.parse(source);
         Element scriptEl = document.selectFirst("script[nonce]");
         String scriptSource = StringUtils.substringBetween(scriptEl.toString(), ".__PRELOADED_STATE__=", ";window.__CSRF_TOKEN__=");
@@ -221,9 +227,10 @@ public class YandexUslugiScraper implements CommandLineRunner {
         Document document;
         int counter = 0;
         Element nextPageEl;
-        source = downloader.getWithCookies(url);
+        source = chromeDriverManager.getPageSource(url).getSource();
         document = Jsoup.parse(source);
         do {
+            logger.info("page {}\n", (counter + 1));
             nextPageEl = document.selectFirst("span:contains(Далее)");
             Elements urlElems = document.select("div.WorkersListBlendered-WorkerCard a.WorkerCardMini-Title");
             for (Element urlElem : urlElems) {
@@ -237,7 +244,7 @@ public class YandexUslugiScraper implements CommandLineRunner {
             }
             if (nextPageEl != null) {
                 url = String.format("https://yandex.ru/uslugi/%s/category%s%s", regionUrl, category.getUrl(), appender) + "&p=" + ++counter;
-                source = downloader.getWithCookies(url);
+                source = chromeDriverManager.getPageSource(url).getSource();
                 document = Jsoup.parse(source);
             }
         } while (nextPageEl != null);
@@ -268,9 +275,44 @@ public class YandexUslugiScraper implements CommandLineRunner {
         return categories;
     }
 
+
     @Override
-    public void run(String... args) throws Exception {
-        chromeDriverManager.getPageSource("https://yandex.ru/uslugi/1-moscow-and-moscow-oblast/category/hozyajstvo-i-uborka/uborka--3124");
+    @SneakyThrows
+    public void run(String... args) {
         scrape();
+
+//        List<Future> futures = new ArrayList<>();
+//        List<ServiceProvider> allParsed = serviceProviderService.getAllParsed(false);
+//        for (ServiceProvider serviceProvider : allParsed) {
+//            futures.add(executorService.submit(() -> {
+//                final ServiceProvider serviceProviderFinal = serviceProvider;
+//                SourceCookiesWraper sourceCookiesWraper = chromeDriverManager.getPageSource(serviceProviderFinal.getUrl());
+//                Document document = Jsoup.parse(sourceCookiesWraper.getSource());
+//                ServiceProvider parsedServiceProvide = yandexUslugiParser.parseServiceProvider(document, serviceProviderFinal, sourceCookiesWraper.getCookies());
+//                serviceProviderService.save(parsedServiceProvide);
+//                logger.info("parsed {} - {}", parsedServiceProvide.getName(), parsedServiceProvide.getUrl());
+//            }));
+//        }
+
+
+//        ChromeDriver chromeDriver = new ChromeDriver();
+//        chromeDriver.get("https://yandex.ru/uslugi/profile/Servismen35-994857");
+//        Set<Cookie> cookies = chromeDriver.manage().getCookies();
+//        int counter = 0;
+//        for (int i = 0; i < 100; i++) {
+//            if(counter++ == 5) {
+//                counter = 0;
+//                chromeDriver.get("https://yandex.ru/uslugi/profile/Servismen35-994857");
+//                cookies = chromeDriver.manage().getCookies();
+//            }
+//            String s = downloader.get("https://yandex.ru/uslugi/profile/Servismen35-994857", cookies);
+//            if (s.contains("Нам очень жаль, но запросы, поступившие с вашего IP-адреса")) {
+//                System.out.println("captcha");
+//            } else {
+//                System.out.println(i);
+//            }
+//            Thread.sleep(1000);
+//        }
+
     }
 }

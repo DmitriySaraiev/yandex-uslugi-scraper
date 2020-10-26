@@ -7,9 +7,12 @@ import org.apache.commons.lang3.StringUtils;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.openqa.selenium.Cookie;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+
+import java.util.Set;
 
 @Component
 public class YandexUslugiParser {
@@ -22,7 +25,7 @@ public class YandexUslugiParser {
         this.downloader = downloader;
     }
 
-    public ServiceProvider parseServiceProvider(Document document, Boolean isCompany) {
+    public ServiceProvider parseServiceProvider(Document document, ServiceProvider serviceProvider, Set<Cookie> cookies) {
 
         String name = null;
         String phone;
@@ -36,13 +39,13 @@ public class YandexUslugiParser {
         Float overallRating = null;
         String location = null;
 
-        Element nameEl = document.selectFirst("b.Text.Text_line_xl.Text_size_xl.Text_type_bold.TextBlock");
+        Element nameEl = document.selectFirst("div.WorkerAbout2-Info b");
         if (nameEl != null) {
             name = nameEl.text();
         }
-        phone = requestPhone(document);
+        phone = requestPhone(document, cookies);
         if (phone == null || phone.equals("")) {
-            logger.error("no phone found for {}", document.location());
+            logger.error("no phone found for {}", serviceProvider.getUrl());
         }
         Elements socialLinksElems = document.select("a.WorkerAbout2-SocialLink");
         for (Element socialLinksElem : socialLinksElems) {
@@ -60,7 +63,7 @@ public class YandexUslugiParser {
         }
 
         Element passportCheckedEl = document.selectFirst("span:contains(Паспорт проверен)");
-        passportChecked = passportCheckedEl == null;
+        passportChecked = passportCheckedEl == null ? false : true;
         Element overallRatingEl = document.selectFirst("b.GreenRating-Rating");
         if (overallRatingEl != null) {
             overallRating = Float.parseFloat(overallRatingEl.text());
@@ -74,9 +77,7 @@ public class YandexUslugiParser {
             email = StringUtils.substringAfter(emailEl.attr("href"), "mailto:");
         }
 
-        ServiceProvider serviceProvider = new ServiceProvider();
         serviceProvider.setName(name);
-        serviceProvider.setUrl(document.location());
         serviceProvider.setVk(vkUrl);
         serviceProvider.setProfiru(profiRu);
         serviceProvider.setInstagram(instagramUrl);
@@ -85,15 +86,15 @@ public class YandexUslugiParser {
         serviceProvider.setPhone(phone);
         serviceProvider.setEmail(email);
         serviceProvider.setIsPassportVerified(passportChecked);
-        serviceProvider.setIsCompany(isCompany);
         serviceProvider.setRating(overallRating);
         serviceProvider.setLocation(location);
+        serviceProvider.setParsed(true);
 
         return serviceProvider;
     }
 
     @SneakyThrows
-    private String requestPhone(Document document) {
+    private String requestPhone(Document document, Set<Cookie> cookies) {
         try {
             String id = StringUtils.substringBetween(document.html(), "\"workerIds\":[\"", "\"],\"blender\"");
             String apiUrl = "https://yandex.ru/uslugi/api/get_worker_phone?ajax=1";
@@ -104,7 +105,7 @@ public class YandexUslugiParser {
                     "        }\n" +
                     "    }\n" +
                     "}", id);
-            String phoneResponse = downloader.post(apiUrl, body);
+            String phoneResponse = downloader.post(apiUrl, body, cookies);
             return StringUtils.substringBetween(phoneResponse, "phone\":\"", "\"},");
         } catch (Exception e) {
             return null;

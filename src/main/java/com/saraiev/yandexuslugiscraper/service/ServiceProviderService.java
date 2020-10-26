@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 @Service
 public class ServiceProviderService {
 
@@ -21,8 +23,14 @@ public class ServiceProviderService {
     public ServiceProvider get(String url) {
         return serviceProviderRepository.findByUrl(url);
     }
+    public List<ServiceProvider> getAllParsed(Boolean parsed) {
+        return serviceProviderRepository.findAllByParsed(parsed);
+    }
 
     public ServiceProvider save(ServiceProvider serviceProvider) {
+        if(serviceProvider.getId() != null) {
+            return serviceProviderRepository.save(serviceProvider);
+        }
         ServiceProvider serviceProviderByUrl = serviceProviderRepository.findByUrl(serviceProvider.getUrl());
         if (serviceProviderByUrl != null) {
             logger.info("Service provider {} {} already exists", serviceProvider.getUrl(), serviceProvider.getName());

@@ -1,12 +1,13 @@
 package com.saraiev.yandexuslugiscraper.utils;
 
 import com.saraiev.yandexuslugiscraper.domain.ChromeDriverWrapper;
+import com.saraiev.yandexuslugiscraper.domain.SourceCookiesWraper;
 import io.github.bonigarcia.wdm.WebDriverManager;
-import lombok.Getter;
 import lombok.SneakyThrows;
 import org.apache.commons.io.FileUtils;
 import org.openqa.selenium.*;
 import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,10 +17,10 @@ import org.springframework.stereotype.Service;
 import javax.annotation.PreDestroy;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.awt.image.RasterFormatException;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 @Service
 public class ChromeDriverManager {
@@ -28,17 +29,19 @@ public class ChromeDriverManager {
 
     private final List<ChromeDriverWrapper> chromeDriverWrappers;
 
+    private int captchaImageIndex = 0;
+
     @Autowired
     private CaptchaSolver captchaSolver;
 
-    @Getter
-    private Set<Cookie> cookies;
 
     public ChromeDriverManager(@Value("${chromedriver.number}") int numberOfDrivers) {
         chromeDriverWrappers = new ArrayList<>();
         WebDriverManager.chromedriver().setup();
         for (int i = 0; i < numberOfDrivers; i++) {
-            ChromeDriver chromeDriver = new ChromeDriver();
+            ChromeOptions chromeOptions = new ChromeOptions();
+            chromeOptions.setPageLoadStrategy(PageLoadStrategy.EAGER);
+            ChromeDriver chromeDriver = new ChromeDriver(chromeOptions);
             ChromeDriverWrapper chromeDriverWrapper = new ChromeDriverWrapper();
             chromeDriverWrapper.setChromeDriver(chromeDriver);
             chromeDriverWrappers.add(chromeDriverWrapper);
@@ -46,7 +49,7 @@ public class ChromeDriverManager {
     }
 
     @SneakyThrows
-    public ChromeDriverWrapper getFreeChromeDriver() {
+    private ChromeDriverWrapper getFreeChromeDriver() {
         while (true) {
             for (ChromeDriverWrapper chromeDriverWrapper : chromeDriverWrappers) {
                 if (!chromeDriverWrapper.isBusy()) {
@@ -58,72 +61,79 @@ public class ChromeDriverManager {
         }
     }
 
-
-    public String getPageSource(String url) {
+    public SourceCookiesWraper getPageSource(String url) {
         ChromeDriverWrapper chromeDriverWrapper = getFreeChromeDriver();
         try {
             chromeDriverWrapper.setBusy(true);
             ChromeDriver chromeDriver = chromeDriverWrapper.getChromeDriver();
             chromeDriver.get(url);
             waitForCaptchaSolution(chromeDriver);
-            return chromeDriver.findElement(By.tagName("html")).getAttribute("outerHTML");
+            SourceCookiesWraper sourceCookiesWraper = new SourceCookiesWraper();
+            sourceCookiesWraper.setCookies(chromeDriver.manage().getCookies());
+            sourceCookiesWraper.setSource(chromeDriver.findElement(By.tagName("html")).getAttribute("outerHTML"));
+            return sourceCookiesWraper;
         } finally {
             chromeDriverWrapper.setBusy(false);
         }
     }
 
-    public String getPageSourceWithInteraction(String url) {
-        ChromeDriverWrapper chromeDriverWrapper = getFreeChromeDriver();
-        try {
-            chromeDriverWrapper.setBusy(true);
-            ChromeDriver chromeDriver = chromeDriverWrapper.getChromeDriver();
-            chromeDriver.get(url);
-            waitForCaptchaSolution(chromeDriver);
-            try {
-                WebElement showAllCategoriesElem = chromeDriver.findElement(By.cssSelector("div.Filters span.YdoIcon"));
-                showAllCategoriesElem.click();
-            } catch (NoSuchElementException ignored) {
-            }
-            return chromeDriver.findElement(By.tagName("html")).getAttribute("outerHTML");
-        } finally {
-            chromeDriverWrapper.setBusy(false);
-        }
-    }
 
     @SneakyThrows
     private void waitForCaptchaSolution(ChromeDriver chromeDriver) {
         while (true) {
-            String source = chromeDriver.findElement(By.tagName("body")).getAttribute("outerHTML");
-            if (source.contains("Нам очень жаль, но запросы, поступившие с вашего IP-адреса")) {
-                if(captchaSolver.isSolvingInProcess()) {
-                    logger.info("captcha is being solved now");
-                    Thread.sleep(4000);
-                    return;
+            String source;
+            while (true) {
+                try {
+                    source = chromeDriver.findElement(By.tagName("body")).getAttribute("outerHTML");
+                } catch (NoSuchElementException e) {
+                    Thread.sleep(2000);
+                    continue;
                 }
+                break;
+            }
+            if (source.contains("Нам очень жаль, но запросы, поступившие с вашего IP-адреса")) {
                 logger.info("captcha");
 
-                WebElement webElement = chromeDriver.findElement(By.cssSelector("img"));
-                File screenshot = ((TakesScreenshot) chromeDriver).getScreenshotAs(OutputType.FILE);
-                BufferedImage fullImg = ImageIO.read(screenshot);
+                WebElement webElement;
+                File screenshot;
 
-                Point point = webElement.getLocation();
+                BufferedImage fullImg;
+                Point point;
+                int eleWidth;
+                int eleHeight;
+                BufferedImage eleScreenshot;
 
-                int eleWidth = webElement.getSize().getWidth();
-                int eleHeight = webElement.getSize().getHeight();
-
-                BufferedImage eleScreenshot = fullImg.getSubimage(point.getX(), point.getY(),
-                        eleWidth, eleHeight);
+                while (true) {
+                    try {
+                        webElement = chromeDriver.findElement(By.cssSelector("img"));
+                        screenshot = ((TakesScreenshot) chromeDriver).getScreenshotAs(OutputType.FILE);
+                        fullImg = ImageIO.read(screenshot);
+                        point = webElement.getLocation();
+                        eleWidth = webElement.getSize().getWidth();
+                        eleHeight = webElement.getSize().getHeight();
+                        eleScreenshot = fullImg.getSubimage(point.getX(), point.getY(),
+                                eleWidth, eleHeight);
+                    } catch (RasterFormatException e) {
+                        Thread.sleep(3000);
+                        continue;
+                    }
+                    break;
+                }
                 ImageIO.write(eleScreenshot, "png", screenshot);
 
-                File screenshotLocation = new File("capthca.png");
+                String captchaImageFileName = String.format("capthcha%s.png", captchaImageIndex++);
+
+                File screenshotLocation = new File(captchaImageFileName);
                 FileUtils.copyFile(screenshot, screenshotLocation);
-                String captchaSolveResult = captchaSolver.solveImageCaptcha();
+                String captchaSolveResult = captchaSolver.solveImageCaptcha(captchaImageFileName);
+                if (captchaSolveResult == null || captchaSolveResult.equals("")) {
+                    continue;
+                }
                 WebElement responseElement = chromeDriver.findElement(By.cssSelector("div.input-wrapper__input-field input"));
                 responseElement.sendKeys(captchaSolveResult);
                 WebElement submitElement = chromeDriver.findElement(By.cssSelector("button.submit"));
                 submitElement.click();
             } else {
-                cookies = chromeDriver.manage().getCookies();
                 break;
             }
         }
@@ -133,4 +143,5 @@ public class ChromeDriverManager {
     public void quitAllDriver() {
         chromeDriverWrappers.parallelStream().forEach(chromeDriverWrapper -> chromeDriverWrapper.getChromeDriver().quit());
     }
+
 }
